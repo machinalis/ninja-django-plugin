@@ -1,11 +1,19 @@
 # -*- coding: utf-8 *-*
 import logging
+import subprocess
+import re
 
 from PyQt4.QtGui import QTreeWidget
+import os
+import json
+import urllib2
+import urllib
+from PyQt4.QtGui import QAction
 from PyQt4.QtGui import QTreeWidgetItem
 from PyQt4.QtGui import QHeaderView
 from PyQt4.QtGui import QAbstractItemView
 from PyQt4.QtCore import SIGNAL
+from PyQt4.QtCore import QString
 
 from ninja_ide.gui.explorer.explorer_container import ExplorerContainer
 from ninja_ide.core import plugin
@@ -17,10 +25,12 @@ from template_parser.context import get_context
 
 from copy import deepcopy
 from collections import namedtuple
-import re
 
 from django.template import Template
 from django.conf import settings
+
+IP_RE = re.compile("(?:(?:25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)\.){3}"\
+                    "(?:25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?):\d{1,5}")
 
 logger = logging.getLogger('ninja-django-plugin.django_plugin.gui')
 logging.basicConfig()
@@ -31,6 +41,10 @@ settings.configure(TEMPLATE_DIRS=tuple())
 Node = namedtuple('Node', ['value', 'children'])
 TEMPLATE_RE = re.compile("\{\{.+?\}\}")
 PROJECT_TYPE = "Django App"
+
+
+def make_data(url, *args, **kwargs):
+    return url, urllib.urlencode(kwargs)
 
 
 class DjangoContextItem(object):
@@ -66,7 +80,7 @@ class DjangoContext(object):
         return self._model[key]
 
     def update_context(self, context_text):
-        context_list = parse_django_template(context_text)
+        context_list = json.loads(context_text)
         current, new = set(self._context_list), set(context_list)
         new = new.difference(current)
         if new:
@@ -74,14 +88,14 @@ class DjangoContext(object):
             self._process_context_list()
 
     def set_context(self, context_text):
-        context_list = parse_django_template(context_text)
+        context_list = json.loads(context_text)
         self._context_list = context_list
         self._model = dict()
         self._process_context_list(context_list)
 
     def get_context(self):
         """Serialize current tree and return context in list form"""
-        return self._serialize_context_tree()
+        return self._serialize_context_list()
 
     context = property(get_context, set_context)
 
@@ -101,26 +115,48 @@ class DjangoContext(object):
         """Tranform the current context tree and transform it into context"""
         context = []
         for each_item in self._model:
-            context.append(each_item)
-            for each_tree_path in self._walk_tree(self._model[each_item]):
+            if each_item not in context:
+                each_item_value = self._model[each_item].get("value")
+                each_item_value = each_item_value and \
+                                unicode(each_item_value) or u""
+                context.append((each_item, each_item_value))
+            for each_tree_path, each_tree_value in \
+                self._walk_tree(self._model[each_item]):
                 path = [each_item] + [each_tree_path]
-                context.append(".".join(path))
-        return context
+                clean_path = []
+                for each_segment in path:
+                    if isinstance(each_segment, QString):
+                        each_segment = unicode(each_segment)
+                    if each_segment is not None:
+                        clean_path.append(each_segment)
+                str_clear_path = ".".join(clean_path)
+                if (str_clear_path not in context) and \
+                    (str_clear_path != each_item):
+                    each_tree_value = each_tree_value and \
+                                        unicode(each_tree_value) or u""
+                    context.append((str_clear_path, each_tree_value))
+        return dict(context)
 
     def _walk_tree(self, parent):
         """Recursively walk the tree to reconstruct the path"""
-        if parent.value:
-            yield parent.value
-        children = parent.children
+#        if parent.get("value"):
+#            yield parent.get("value")
+        children = parent.get("children")
         if children:
             for each_child in children:
-                yield each_child
-                for each_path in self._walk_tree(children[each_child]):
+                yield each_child, children.get(each_child).get("value")
+                for each_path, each_value in \
+                    self._walk_tree(children[each_child]):
                     path = [each_child] + [each_path]
-                    path = [a_segment for a_segment in path if a_segment]
-                    yield ".".join(path)
+                    clean_path = []
+                    for each_segment in path:
+                        if isinstance(each_segment, QString):
+                            each_segment = unicode(each_segment)
+                        if each_segment is not None:
+                            clean_path.append(each_segment)
+                    yield ".".join(clean_path), each_value
         else:
-            yield None
+            yield None, None
 
 
 class DjangoContextTreeItem(QTreeWidgetItem):
@@ -188,6 +224,9 @@ class DjangoContextExplorer(QTreeWidget):
             self.closePersistentEditor(*self._editing)
             self._editing = None
 
+    def get_context(self):
+        return self._context.get_context()
+
 
 @implements(IProjectTypeHandler)
 class DjangoProjectType(object):
@@ -222,21 +261,59 @@ class DjangoPluginMain(plugin.Plugin):
         self._contexts = dict()
         ec.addTab(self._c_explorer, "Django Template")
         editor_service = self.locator.get_service("editor")
+        self._es = editor_service
+        toolbar_service = self.locator.get_service("toolbar")
         editor_service.currentTabChanged.connect(self._current_tab_changed)
         editor_service.fileSaved.connect(self._a_file_saved)
+
+        do_refresh_vars = QAction("Refresh", self)
+        toolbar_service.add_action(do_refresh_vars)
+        do_refresh_vars.connect(do_refresh_vars,
+                                SIGNAL("triggered( bool)"),
+                                self._do_refresh_vars)
+
+        do_render_template = QAction("Render", self)
+        toolbar_service.add_action(do_render_template)
+        do_render_template.connect(do_render_template,
+                                    SIGNAL("triggered( bool)"),
+                                    self._do_render_template)
 
         self.explorer_s = self.locator.get_service('explorer')
         # Set a project handler for NINJA-IDE Plugin
         self.explorer_s.set_project_type_handler(PROJECT_TYPE,
                 DjangoProjectType(self.locator))
+        self._current_file_name = ""
+        self._django_template_renderers = {}
         self._current_tab_changed(editor_service.get_editor_path())
 
+    def _start_django(self, fileName):
+        if not self._is_django_project(fileName):
+            return
+        project = self._get_project_key(fileName)
+        python_interpreter = project.venv
+        script_name = os.path.join(os.path.dirname(__file__),
+                                    "template_server", "server.py")
+        args = (python_interpreter, "-u", script_name, project.path, "settings")
+        sp = subprocess.Popen(args, stdout=subprocess.PIPE,
+                                    stderr=subprocess.PIPE)
+        url = ""
+        while not url:
+            each_line = sp.stdout.readline()
+            match = IP_RE.findall(each_line)
+            if match:
+                url = "http://%s" % match[0]
+        return {"url": url, "process": sp}
+
     def _is_django_project(self, fileName):
+        a_project = self._get_project_key(fileName)
+        return a_project and (a_project.projectType == PROJECT_TYPE)
+
+    def _get_project_key(self, fileName):
         fileName = unicode(fileName)
         projects_obj = self.explorer_s.get_opened_projects()
         for each_project in projects_obj:
             if belongs_to_folder(unicode(each_project.path), fileName):
-                return each_project.projectType == PROJECT_TYPE
+                return each_project
 
     def _is_template(self, fileName):
         fileName = unicode(fileName)
@@ -244,12 +321,43 @@ class DjangoPluginMain(plugin.Plugin):
                 self.locator.get_service("editor").get_text()):
             return True
 
-    def _load_context_for(self, context_key):
+    def _do_refresh_vars(self, *args, **kwargs):
+        self._load_context_for(self._es.get_editor_path())
+
+    def _do_render_template(self, *args, **kwargs):
+        path = self._es.get_editor_path()
+        project_key = self._get_project_key(path).path
+        url = self._django_template_renderers[project_key]["url"]
         current_text = self.locator.get_service("editor").get_text()
+        context = json.dumps(self._c_explorer.get_context())
+        values = {"template": current_text.encode("utf-8"),
+                "context": context}
+        request = urllib2.Request(*make_data(url, **values))
+
+        DEBUG("Trying to render url %s" % url)
+        misc_container_web = self.locator.get_service("misc")._misc._web
+        try:
+            page_content = urllib2.urlopen(request).read()
+        except urllib2.URLError, err:
+            page_content = err.read()
+        misc_container_web.render_from_html(page_content)
+
+    def _load_context_for(self, context_key):
+        project = self._get_project_key(context_key)
+        project_key = project.path
+        current_text = self.locator.get_service("editor").get_text()
+        if project_key not in self._django_template_renderers:
+            self._django_template_renderers[project_key] = \
+                            self._start_django(context_key)
+        url = self._django_template_renderers[project_key]["url"]
+        values = {"template": current_text.encode("utf-8")}
+        req = urllib2.Request(*make_data(url, **values))
+        context = urllib2.urlopen(req).read()
+
         if self._contexts.get(context_key, None):
-            self._contexts[context_key].update_context(current_text)
+            self._contexts[context_key].update_context(context)
         else:
-            self._contexts[context_key] = DjangoContext(current_text)
+            self._contexts[context_key] = DjangoContext(context)
 
     def _a_file_saved(self, fileName):
         fileName = unicode(fileName)
@@ -258,17 +366,19 @@ class DjangoPluginMain(plugin.Plugin):
             self._c_explorer.populate(self._contexts[fileName])
 
     def _current_tab_changed(self, fileName):
-        fileName = unicode(fileName)
-        DEBUG("Current tab changed to %s" % fileName)
+        self._current_file_name = unicode(fileName)
         if self._is_template(fileName):
-            if not (fileName in self._contexts):
-                self._load_context_for(fileName)
-            self._c_explorer.populate(self._contexts[fileName])
+            if not (self._current_file_name in self._contexts):
+                self._load_context_for(self._current_file_name)
+            self._c_explorer.populate(self._contexts[self._current_file_name])
         else:
             self._c_explorer.clear()
 
     def finish(self):
         super(DjangoPluginMain, self).finish()
+        for each_sp in self._django_template_renderers:
+            self._django_template_renderers[each_sp][1].kill()
+            self._django_template_renderers[each_sp][1].wait()
 
     def get_preferences_widget(self):
         return super(DjangoPluginMain, self).get_preferences_widget()

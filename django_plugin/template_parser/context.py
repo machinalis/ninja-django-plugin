@@ -106,7 +106,7 @@ def _get_node_context(node):
                 listval = val.var.var.split('.')
                 renames += [([key], listval)]
     else:
-        pass  # We can't do much if we don't know the etmplatetag meaning
+        pass  # We can't do much if we don't know the templatetag meaning
     # TODO: regroup (the arg, and renamings)
 
     # Go through children nodes. [1:] is to skip self

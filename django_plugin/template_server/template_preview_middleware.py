@@ -7,6 +7,7 @@ from django.template import Template, Context
 
 from template_parser.context import get_context
 
+
 class TemplatePreviewMiddleware(object):
 
     def process_request(self, request):
@@ -15,7 +16,8 @@ class TemplatePreviewMiddleware(object):
             return views.serve(request, static_path)
         else:
             if request.method == 'POST':
-                template_str = request.POST.get('template', 'no template provided')
+                template_str = request.POST.get('template',
+                                                'no template provided')
                 template = Template(template_str)
                 if 'context' in request.POST:
                     context = json.loads(request.POST['context'])

@@ -9,6 +9,7 @@ cwd = os.path.abspath(__file__)
 plugin_base = os.path.join(os.path.dirname(cwd), os.pardir)
 sys.path.append(os.path.normpath(plugin_base))
 
+
 def parse_command_line(argv=None):
     """
     Returns a tupple with the project path and settings module name
@@ -21,13 +22,15 @@ def parse_command_line(argv=None):
         sys.exit(1)
 
     path = sys.argv[1]
-    if path[-1] == '/': path=path[:-1]
+    if path[-1] == '/':
+        path = path[: -1]
 
     if len(sys.argv) == 3:
         settings_module_name = sys.argv[2]
     else:
         settings_module_name = 'settings'
     return path, settings_module_name
+
 
 def django_setup(settings_module_name):
     """
@@ -76,7 +79,8 @@ def django_setup(settings_module_name):
     )
     minimal_settings['TEMPLATE_CONTEXT_PROCESSORS'] = (
         "django.core.context_processors.i18n",
-        "django.core.context_processors.static"
+        "django.core.context_processors.static",
+        "django.contrib.auth.context_processors.auth"
     )
     minimal_settings['DEBUG'] = True
     minimal_settings['TEMPLATE_DEBUG'] = True
@@ -88,6 +92,7 @@ def django_setup(settings_module_name):
     }
     settings.configure(**minimal_settings)
 
+
 def find_open_port():
     """Finds an available TCP port number"""
     s = socket.socket()
@@ -96,10 +101,12 @@ def find_open_port():
     s.close()
     return port
 
+
 def run_server(port):
     """run a base-configured django server on 127.0.0.1:port"""
     from django.core.management import execute_from_command_line
     execute_from_command_line([__name__, 'runserver', '--noreload', str(port)])
+
 
 def main():
     project_path, settings_module = parse_command_line(sys.argv)
