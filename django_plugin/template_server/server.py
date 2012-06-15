@@ -82,6 +82,12 @@ def django_setup(settings_module_name):
         "django.core.context_processors.static",
         "django.contrib.auth.context_processors.auth"
     )
+    minimal_settings['STATICFILES_FINDERS'] = (
+    'django.contrib.staticfiles.finders.FileSystemFinder',
+    'django.contrib.staticfiles.finders.AppDirectoriesFinder',
+    'django.contrib.staticfiles.finders.DefaultStorageFinder',
+    )
+
     minimal_settings['DEBUG'] = True
     minimal_settings['TEMPLATE_DEBUG'] = True
     minimal_settings['DATABASES'] = {
