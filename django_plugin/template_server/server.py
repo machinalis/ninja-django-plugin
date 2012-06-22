@@ -87,6 +87,9 @@ def django_setup(settings_module_name):
     'django.contrib.staticfiles.finders.AppDirectoriesFinder',
     'django.contrib.staticfiles.finders.DefaultStorageFinder',
     )
+    if minimal_settings.get('STATIC_URL', None) is None:
+        # STATIC URL is either unset or set to None; we need a value
+        minimal_settings['STATIC_URL'] = '/static/'
 
     minimal_settings['DEBUG'] = True
     minimal_settings['TEMPLATE_DEBUG'] = True
