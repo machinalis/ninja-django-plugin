@@ -10,10 +10,12 @@ import urllib2
 import urllib
 from PyQt4.QtGui import QAction
 from PyQt4.QtGui import QTreeWidgetItem
+from PyQt4.QtGui import QVBoxLayout
 from PyQt4.QtGui import QHeaderView
+from PyQt4.QtGui import QWidget
 from PyQt4.QtGui import QAbstractItemView
+from PyQt4.QtGui import QPushButton
 from PyQt4.QtCore import SIGNAL
-from PyQt4.QtCore import QString
 
 from ninja_ide.gui.explorer.explorer_container import ExplorerContainer
 from ninja_ide.core import plugin
@@ -41,6 +43,90 @@ settings.configure(TEMPLATE_DIRS=tuple())
 Node = namedtuple('Node', ['value', 'children'])
 TEMPLATE_RE = re.compile("\{\{.+?\}\}")
 PROJECT_TYPE = "Django App"
+
+TEMPLATE_REGEX = [
+    ["function", "properObject"],
+    ["\\{#[^}]*#\\}", "comment", ""],
+    ["\\{\\{[^}]*\\}\\}", "editor-text", "italic"],
+    ["\\{\\{", "operator", "bold italic"],
+    ["\\}\\}", "operator", "bold italic"],
+    ["\\{% ?end\\w* ?%\\}", "keyword", "bold"],
+    ["\\{% ?endblock( \\w+)? ?%\\}", "definition", "bold"],
+    ["\\{% ?block \\w+ ?%\\}", "definition", "bold"],
+    ["\\{% ?cycle", "keyword", "bold"],
+    ["\\{% ?debug ?%\\}", "keyword", "bold"],
+    ["\\{% ?extends", "keyword", "bold"],
+    ["\\{% ?filter", "keyword", "bold"],
+    ["\\{% ?firstof", "keyword", "bold"],
+    ["\\{% ?for", "keyword", "bold"],
+    ["\\{% ?empty ?%\\}", "keyword", "bold"],
+    ["\\{% ?if", "keyword", "bold"],
+    ["\\{% ?else ?%\\}", "keyword", "bold"],
+    ["\\{% ?ifchanged", "keyword", "bold"],
+    ["\\{% ?include", "keyword", "bold"],
+    ["\\{% ?load", "keyword", "bold"],
+    ["\\{% ?now", "keyword", "bold"],
+    ["\\{% ?regroup", "keyword", "bold"],
+    ["\\{% ?spaceless ?%\\}", "keyword", "bold"],
+    ["\\{% ?templatetag", "keyword", "bold"],
+    ["\\{% ?url", "keyword", "bold"],
+    ["\\{% ?widthratio", "keyword", "bold"],
+    ["\\{% ?with", "keyword", "bold"],
+    ["\\|add:", "operator", "bold"],
+    ["\\|addslashes", "operator", "bold"],
+    ["\\|capfirst", "operator", "bold"],
+    ["\\|center:", "operator", "bold"],
+    ["\\|cut:", "operator", "bold"],
+    ["\\|date:", "operator", "bold"],
+    ["\\|default:", "operator", "bold"],
+    ["\\|default_if_none:", "operator", "bold"],
+    ["\\|dictsort:", "operator", "bold"],
+    ["\\|dictsortreversed:", "operator", "bold"],
+    ["\\|divisibleby:", "operator", "bold"],
+    ["\\|escape", "operator", "bold"],
+    ["\\|escapejs", "operator", "bold"],
+    ["\\|filesizeformat", "operator", "bold"],
+    ["\\|first", "operator", "bold"],
+    ["\\|fix_ampersands", "operator", "bold"],
+    ["\\|floatformat:?", "operator", "bold"],
+    ["\\|force_escape", "operator", "bold"],
+    ["\\|get_digit:", "operator", "bold"],
+    ["\\|iriencode", "operator", "bold"],
+    ["\\|join:", "operator", "bold"],
+    ["\\|length", "operator", "bold"],
+    ["\\|length_is:", "operator", "bold"],
+    ["\\|linebreaks", "operator", "bold"],
+    ["\\|linebreaksbr", "operator", "bold"],
+    ["\\|linenumbers", "operator", "bold"],
+    ["\\|ljust:", "operator", "bold"],
+    ["\\|lower", "operator", "bold"],
+    ["\\|make_list", "operator", "bold"],
+    ["\\|phone2numeric", "operator", "bold"],
+    ["\\|pluralize:?", "operator", "bold"],
+    ["\\|pprint", "operator", "bold"],
+    ["\\|random", "operator", "bold"],
+    ["\\|remotetags:", "operator", "bold"],
+    ["\\|rjust:", "operator", "bold"],
+    ["\\|safe", "operator", "bold"],
+    ["\\|safeseq", "operator", "bold"],
+    ["\\|slice:", "operator", "bold"],
+    ["\\|slugify", "operator", "bold"],
+    ["\\|stringformat:", "operator", "bold"],
+    ["\\|striptags", "operator", "bold"],
+    ["\\|time:", "operator", "bold"],
+    ["\\|timesince:?", "operator", "bold"],
+    ["\\|timeuntil:?", "operator", "bold"],
+    ["\\|truncatewords:", "operator", "bold"],
+    ["\\|truncatewords_html:", "operator", "bold"],
+    ["\\|unordered_list", "operator", "bold"],
+    ["\\|upper", "operator", "bold"],
+    ["\\|urlencode:?", "operator", "bold"],
+    ["\\|urlize", "operator", "bold"],
+    ["\\|urlizetrunc:", "operator", "bold"],
+    ["\\|wordcount", "operator", "bold"],
+    ["\\|wordwrap:", "operator", "bold"],
+    ["\\|yesno:", "operator", "bold"]
+]
 
 
 def make_data(url, *args, **kwargs):
@@ -247,24 +333,28 @@ class DjangoPluginMain(plugin.Plugin):
         super(DjangoPluginMain, self).initialize(*args, **kwargs)
         self._c_explorer = DjangoContextExplorer()
         self._contexts = dict()
-        ec.addTab(self._c_explorer, "Django Template")
+        render = QPushButton('Render')
+        refresh = QPushButton('Refresh Variables')
+
+        class TransientWidget(QWidget):
+            def __init__(self, widget_list):
+                super(TransientWidget, self).__init__()
+                vbox = QVBoxLayout(self)
+                for each_widget in widget_list:
+                    vbox.addWidget(each_widget)
+
+        tw = TransientWidget((render, refresh, self._c_explorer))
+        ec.addTab(tw, "Django Template")
         editor_service = self.locator.get_service("editor")
         self._es = editor_service
-        toolbar_service = self.locator.get_service("toolbar")
         editor_service.currentTabChanged.connect(self._current_tab_changed)
         editor_service.fileSaved.connect(self._a_file_saved)
 
-        do_refresh_vars = QAction("Refresh \ncontext\n vars", self)
-        toolbar_service.add_action(do_refresh_vars)
-        do_refresh_vars.connect(do_refresh_vars,
-                                SIGNAL("triggered( bool)"),
-                                self._do_refresh_vars)
+        refresh.connect(refresh, SIGNAL("clicked( bool)"),
+                        self._do_refresh_vars)
 
-        do_render_template = QAction("Render\n django\n template", self)
-        toolbar_service.add_action(do_render_template)
-        do_render_template.connect(do_render_template,
-                                    SIGNAL("triggered( bool)"),
-                                    self._do_render_template)
+        render.connect(render, SIGNAL("clicked( bool)"),
+                        self._do_render_template)
 
         self.explorer_s = self.locator.get_service('explorer')
         # Set a project handler for NINJA-IDE Plugin
@@ -279,6 +369,8 @@ class DjangoPluginMain(plugin.Plugin):
             return
         project = self._get_project_key(fileName)
         python_interpreter = project.venv
+        if not python_interpreter:
+            return
         script_name = os.path.join(os.path.dirname(__file__),
                                     "template_server", "server.py")
         args = (python_interpreter, "-u", script_name, project.path, "settings")
@@ -331,6 +423,7 @@ class DjangoPluginMain(plugin.Plugin):
         except urllib2.URLError, err:
             page_content = err.read()
         misc_container_web.render_from_html(page_content, url)
+        self.locator.get_service("misc")._misc._item_changed(2)
 
     def _load_context_for(self, context_key):
         project = self._get_project_key(context_key)
@@ -365,7 +458,6 @@ class DjangoPluginMain(plugin.Plugin):
             self._c_explorer.clear()
 
     def finish(self):
-        DEBUG("Finishing Django plugin")
         super(DjangoPluginMain, self).finish()
         for each_sp in self._django_template_renderers:
             self._django_template_renderers[each_sp]["process"].kill()
