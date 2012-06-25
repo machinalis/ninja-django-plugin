@@ -8,9 +8,9 @@ This plugin is yet fairly simple.
 
 What we have right now is the following:
 
--Support for Django syntax (we actually built this into html syntax in ninja until the IDE can provide a suitable syntax system that allows us to modify the syntax of any file type to include template items.)
--Template Preview: You can render the templates using custom values modifiable via gui
--Django Poject Type: You can create a "Django App" project type that will be used to identify the files that can be templates and in a future all the files that can be affected by all the plugin features.
+- Support for Django syntax (we actually built this into html syntax in ninja until the IDE can provide a suitable syntax system that allows us to modify the syntax of any file type to include template items.)
+- Template Preview: You can render the templates using custom values modifiable via gui
+- Django Poject Type: You can create a "Django App" project type that will be used to identify the files that can be templates and in a future all the files that can be affected by all the plugin features.
 
 **WARNING:** *In order to use this plugin you do need to have a working django instace WITH virtualenv and it must be working.*
 
