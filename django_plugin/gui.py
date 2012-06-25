@@ -1,4 +1,24 @@
 # -*- coding: utf-8 *-*
+# This file is part of NINJA-DJANGO-PLUGIN
+# (https://github.com/machinalis/ninja-django-plugin.)
+#
+# Copyright (C) 2012 Machinalis S.R.L <http://www.machinalis.com>
+#
+# Authors: Daniel Moisset <dmoisset at machinalis dot com>
+#          Horacio Duran <hduran at machinalis dot com>
+#
+# NINJA-DJANGO-PLUGIN is free software; you can redistribute it and/or modify
+# it under the terms of the GNU General Public License as published by
+# the Free Software Foundation; either version 3 of the License, or
+# any later version.
+#
+# NINJA-DJANGO-PLUGIN  is distributed in the hope that it will be useful,
+# but WITHOUT ANY WARRANTY; without even the implied warranty of
+# MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+# GNU General Public License for more details.
+#
+# You should have received a copy of the GNU General Public License
+# along with NINJA-DJANGO-PLUGIN; If not, see <http://www.gnu.org/licenses/>.
 import logging
 import subprocess
 import re
@@ -8,7 +28,6 @@ import os
 import json
 import urllib2
 import urllib
-from PyQt4.QtGui import QAction
 from PyQt4.QtGui import QTreeWidgetItem
 from PyQt4.QtGui import QVBoxLayout
 from PyQt4.QtGui import QHeaderView
@@ -43,90 +62,6 @@ settings.configure(TEMPLATE_DIRS=tuple())
 Node = namedtuple('Node', ['value', 'children'])
 TEMPLATE_RE = re.compile("\{\{.+?\}\}")
 PROJECT_TYPE = "Django App"
-
-TEMPLATE_REGEX = [
-    ["function", "properObject"],
-    ["\\{#[^}]*#\\}", "comment", ""],
-    ["\\{\\{[^}]*\\}\\}", "editor-text", "italic"],
-    ["\\{\\{", "operator", "bold italic"],
-    ["\\}\\}", "operator", "bold italic"],
-    ["\\{% ?end\\w* ?%\\}", "keyword", "bold"],
-    ["\\{% ?endblock( \\w+)? ?%\\}", "definition", "bold"],
-    ["\\{% ?block \\w+ ?%\\}", "definition", "bold"],
-    ["\\{% ?cycle", "keyword", "bold"],
-    ["\\{% ?debug ?%\\}", "keyword", "bold"],
-    ["\\{% ?extends", "keyword", "bold"],
-    ["\\{% ?filter", "keyword", "bold"],
-    ["\\{% ?firstof", "keyword", "bold"],
-    ["\\{% ?for", "keyword", "bold"],
-    ["\\{% ?empty ?%\\}", "keyword", "bold"],
-    ["\\{% ?if", "keyword", "bold"],
-    ["\\{% ?else ?%\\}", "keyword", "bold"],
-    ["\\{% ?ifchanged", "keyword", "bold"],
-    ["\\{% ?include", "keyword", "bold"],
-    ["\\{% ?load", "keyword", "bold"],
-    ["\\{% ?now", "keyword", "bold"],
-    ["\\{% ?regroup", "keyword", "bold"],
-    ["\\{% ?spaceless ?%\\}", "keyword", "bold"],
-    ["\\{% ?templatetag", "keyword", "bold"],
-    ["\\{% ?url", "keyword", "bold"],
-    ["\\{% ?widthratio", "keyword", "bold"],
-    ["\\{% ?with", "keyword", "bold"],
-    ["\\|add:", "operator", "bold"],
-    ["\\|addslashes", "operator", "bold"],
-    ["\\|capfirst", "operator", "bold"],
-    ["\\|center:", "operator", "bold"],
-    ["\\|cut:", "operator", "bold"],
-    ["\\|date:", "operator", "bold"],
-    ["\\|default:", "operator", "bold"],
-    ["\\|default_if_none:", "operator", "bold"],
-    ["\\|dictsort:", "operator", "bold"],
-    ["\\|dictsortreversed:", "operator", "bold"],
-    ["\\|divisibleby:", "operator", "bold"],
-    ["\\|escape", "operator", "bold"],
-    ["\\|escapejs", "operator", "bold"],
-    ["\\|filesizeformat", "operator", "bold"],
-    ["\\|first", "operator", "bold"],
-    ["\\|fix_ampersands", "operator", "bold"],
-    ["\\|floatformat:?", "operator", "bold"],
-    ["\\|force_escape", "operator", "bold"],
-    ["\\|get_digit:", "operator", "bold"],
-    ["\\|iriencode", "operator", "bold"],
-    ["\\|join:", "operator", "bold"],
-    ["\\|length", "operator", "bold"],
-    ["\\|length_is:", "operator", "bold"],
-    ["\\|linebreaks", "operator", "bold"],
-    ["\\|linebreaksbr", "operator", "bold"],
-    ["\\|linenumbers", "operator", "bold"],
-    ["\\|ljust:", "operator", "bold"],
-    ["\\|lower", "operator", "bold"],
-    ["\\|make_list", "operator", "bold"],
-    ["\\|phone2numeric", "operator", "bold"],
-    ["\\|pluralize:?", "operator", "bold"],
-    ["\\|pprint", "operator", "bold"],
-    ["\\|random", "operator", "bold"],
-    ["\\|remotetags:", "operator", "bold"],
-    ["\\|rjust:", "operator", "bold"],
-    ["\\|safe", "operator", "bold"],
-    ["\\|safeseq", "operator", "bold"],
-    ["\\|slice:", "operator", "bold"],
-    ["\\|slugify", "operator", "bold"],
-    ["\\|stringformat:", "operator", "bold"],
-    ["\\|striptags", "operator", "bold"],
-    ["\\|time:", "operator", "bold"],
-    ["\\|timesince:?", "operator", "bold"],
-    ["\\|timeuntil:?", "operator", "bold"],
-    ["\\|truncatewords:", "operator", "bold"],
-    ["\\|truncatewords_html:", "operator", "bold"],
-    ["\\|unordered_list", "operator", "bold"],
-    ["\\|upper", "operator", "bold"],
-    ["\\|urlencode:?", "operator", "bold"],
-    ["\\|urlize", "operator", "bold"],
-    ["\\|urlizetrunc:", "operator", "bold"],
-    ["\\|wordcount", "operator", "bold"],
-    ["\\|wordwrap:", "operator", "bold"],
-    ["\\|yesno:", "operator", "bold"]
-]
 
 
 def make_data(url, *args, **kwargs):
@@ -430,8 +365,12 @@ class DjangoPluginMain(plugin.Plugin):
         project_key = project.path
         current_text = self.locator.get_service("editor").get_text()
         if project_key not in self._django_template_renderers:
-            self._django_template_renderers[project_key] = \
-                            self._start_django(context_key)
+            django_context = self._start_django(context_key)
+            self._django_template_renderers[project_key] = django_context
+            if not django_context:
+                return
+        if self._django_template_renderers[project_key] is None:
+            return
         url = self._django_template_renderers[project_key]["url"]
         values = {"template": current_text.encode("utf-8")}
         req = urllib2.Request(*make_data(url, **values))
