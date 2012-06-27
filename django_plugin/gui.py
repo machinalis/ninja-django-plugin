@@ -34,6 +34,7 @@ from PyQt4.QtGui import QHeaderView
 from PyQt4.QtGui import QWidget
 from PyQt4.QtGui import QAbstractItemView
 from PyQt4.QtGui import QPushButton
+from PyQt4.QtGui import QMessageBox
 from PyQt4.QtCore import SIGNAL
 
 from ninja_ide.gui.explorer.explorer_container import ExplorerContainer
@@ -41,14 +42,13 @@ from ninja_ide.core import plugin
 from ninja_ide.core.plugin_interfaces import IProjectTypeHandler
 from ninja_ide.core.plugin_interfaces import implements
 from ninja_ide.core.file_manager import belongs_to_folder
+from ninja_ide.core import file_manager
+from ninja_ide.tools import json_manager
 
-from template_parser.context import get_context
 
 from copy import deepcopy
 from collections import namedtuple
 
-from django.template import Template
-from django.conf import settings
 
 IP_RE = re.compile("(?:(?:25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)\.){3}"\
                     "(?:25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?):\d{1,5}")
@@ -58,7 +58,6 @@ logging.basicConfig()
 logger.setLevel(logging.DEBUG)
 DEBUG = logger.debug
 
-settings.configure(TEMPLATE_DIRS=tuple())
 Node = namedtuple('Node', ['value', 'children'])
 TEMPLATE_RE = re.compile("\{\{.+?\}\}")
 PROJECT_TYPE = "Django App"
@@ -74,11 +73,6 @@ class DjangoContextItem(object):
 
     def __len__():
         return 0
-
-
-def parse_django_template(text):
-    template = Template(text)
-    return get_context(template)
 
 
 class DjangoContext(object):
@@ -246,14 +240,40 @@ class DjangoProjectType(object):
         """
         Returns a collection of QWizardPage
         """
-        pass
+        return ()
 
     def on_wizard_finish(self, wizard):
         """
         Called when the user finish the wizard
         @wizard: QWizard instance
         """
-        pass
+        ids = wizard.pageIds()
+        page = wizard.page(ids[1])
+        path = unicode(page.txtPlace.text())
+        if not path:
+            QMessageBox.critical(self, self.tr("Incorrect Location"),
+                self.tr("The project couldn\'t be create"))
+            return
+        project = {}
+        name = unicode(page.txtName.text())
+        project['name'] = name
+        project['description'] = unicode(page.txtDescription.toPlainText())
+        project['license'] = unicode(page.cboLicense.currentText())
+        project['venv'] = unicode(page.vtxtPlace.text())
+        project["project-type"] = "Django App"
+        project["supported-extensions"] = [".py",
+                                            ".html",
+                                            ".jpg",
+                                            ".png",
+                                            ".css",
+                                            ".json",
+                                            ".js"]
+        json_manager.create_ninja_project(path, name, project)
+        try:
+            file_manager.create_init_file(path)
+        except:
+            logger.debug("The __init__ file already exists - Import Sources.")
+        wizard._load_project(path)
 
     def get_context_menus(self):
         """"
