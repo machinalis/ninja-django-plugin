@@ -288,6 +288,7 @@ class DjangoPluginMain(plugin.Plugin):
         super(DjangoPluginMain, self).initialize(*args, **kwargs)
         self._c_explorer = DjangoContextExplorer()
         self._contexts = dict()
+        self._error_reported = False
         render = QPushButton('Render')
         refresh = QPushButton('Refresh Variables')
 
@@ -325,6 +326,17 @@ class DjangoPluginMain(plugin.Plugin):
         project = self._get_project_key(fileName)
         python_interpreter = project.venv
         if not python_interpreter:
+            QMessageBox.critical(self._c_explorer,
+                self.tr("Virtualenv Missing"),
+                self.tr("Sorry, a Virtualenv is required for django plugin "
+                        "to work"))
+            return
+        is_django = os.path.exists(os.path.join(project.path, "settings.py"))
+        if not is_django:
+            QMessageBox.critical(self._c_explorer,
+                self.tr("Settings Missing"),
+                self.tr("Sorry, settings file is required for django plugin "
+                        "to work"))
             return
         script_name = os.path.join(os.path.dirname(__file__),
                                     "template_server", "server.py")
@@ -359,11 +371,23 @@ class DjangoPluginMain(plugin.Plugin):
     def _do_refresh_vars(self, *args, **kwargs):
         self._load_context_for(self._es.get_editor_path())
 
+    def _alert_problem(self):
+        if not self._error_reported:
+            self._error_reported = True
+            QMessageBox.critical(self._c_explorer,
+                self.tr("Improper Django Project"),
+                self.tr("Sorry, either settings file or virtualenv are missing"
+                    "these are required for Django Plugin to work in the"
+                    "present version, we are working on fixing this."))
+
     def _do_render_template(self, *args, **kwargs):
         path = self._es.get_editor_path()
         project_key = self._get_project_key(path).path
         if project_key not in self._django_template_renderers:
             self._current_tab_changed(path)
+        if not self._django_template_renderers[project_key]:
+            self._alert_problem()
+            return
         url = self._django_template_renderers[project_key]["url"]
         current_text = self.locator.get_service("editor").get_text()
         context = json.dumps(self._c_explorer.get_context())
@@ -390,6 +414,7 @@ class DjangoPluginMain(plugin.Plugin):
             if not django_context:
                 return
         if self._django_template_renderers[project_key] is None:
+            self._alert_problem()
             return
         url = self._django_template_renderers[project_key]["url"]
         values = {"template": current_text.encode("utf-8")}
@@ -405,14 +430,21 @@ class DjangoPluginMain(plugin.Plugin):
         fileName = unicode(fileName)
         if self._is_template(fileName):
             self._load_context_for(fileName)
-            self._c_explorer.populate(self._contexts[fileName])
+            if fileName in self._contexts:
+                self._c_explorer.populate(self._contexts[fileName])
+            else:
+                self._c_explorer.clear()
 
     def _current_tab_changed(self, fileName):
         self._current_file_name = unicode(fileName)
         if self._is_template(fileName):
             if not (self._current_file_name in self._contexts):
                 self._load_context_for(self._current_file_name)
-            self._c_explorer.populate(self._contexts[self._current_file_name])
+            if self._current_file_name in self._contexts:
+                self._c_explorer.populate(
+                                    self._contexts[self._current_file_name])
+            else:
+                self._c_explorer.clear()
         else:
             self._c_explorer.clear()
 
